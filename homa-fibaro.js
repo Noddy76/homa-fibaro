@@ -25,9 +25,6 @@ var fibaroCallAction = function(name, args, id, callback) {
 var ZDevice = function (id) {
   this.id = id;
 }
-ZDevice.prototype.handle = function (control, payload) {
-    console.log("device " + this.id + ", control " + control + " received payload " + payload);
-}
 ZDevice.prototype.initialise = function (properties) {
   if (properties.dead == "1") {
     console.log("device " + this.id + " is dead");
@@ -46,6 +43,9 @@ ZDevice.prototype.applyUpdate = function (change) {
     homa.mqttHelper.publish("/devices/zwave-" + this.id + "/controls/battery-level", change.batteryLevel , true);
   }
 }
+ZDevice.prototype.handle = function (control, payload) {
+    console.log("device " + this.id + ", control " + control + " received payload " + payload);
+}
 
 var BinaryLight = function(id) {
   ZDevice.call(this, id);
@@ -55,7 +55,6 @@ BinaryLight.prototype = Object.create(ZDevice.prototype);
 BinaryLight.prototype.constructor = BinaryLight
 BinaryLight.prototype.initialise = function (properties) {
   ZDevice.prototype.initialise.apply(this, arguments);
-  console.log("subscribe", "/devices/zwave-" + this.id + "/controls/switch/on");
   if ("valueSensor" in properties) {
     homa.mqttHelper.publish("/devices/zwave-"+ this.id + "/controls/power/meta/type", "text" , true);
     homa.mqttHelper.publish("/devices/zwave-" + this.id + "/controls/power", properties.valueSensor, true);
@@ -72,6 +71,16 @@ BinaryLight.prototype.applyUpdate = function(change) {
     homa.mqttHelper.publish("/devices/zwave-" + this.id + "/controls/switch", change.value, true);
   }
 }
+BinaryLight.prototype.handle = function(control, payload) {
+  ZDevice.prototype.handle.apply(this, arguments);
+  if (control == "switch") {
+    if (payload == "0") {
+      fibaroCallAction("turnOff", {}, this.id, function (error, response, body) {});
+    } else {
+      fibaroCallAction("turnOn", {}, this.id, function (error, response, body) {});
+    }
+  }
+}
 
 var DimmableLight = function(id) {
   ZDevice.call(this, id);
@@ -81,10 +90,32 @@ DimmableLight.prototype = Object.create(ZDevice.prototype);
 DimmableLight.prototype.constructor = DimmableLight
 DimmableLight.prototype.initialise = function (properties) {
   ZDevice.prototype.initialise.apply(this, arguments);
+  if ("valueSensor" in properties) {
+    homa.mqttHelper.publish("/devices/zwave-"+ this.id + "/controls/power/meta/type", "text" , true);
+    homa.mqttHelper.publish("/devices/zwave-" + this.id + "/controls/power", properties.valueSensor, true);
+  }
+  homa.mqttHelper.publish("/devices/zwave-" + this.id + "/controls/switch/meta/type", "range" , true);
+  homa.mqttHelper.publish("/devices/zwave-" + this.id + "/controls/switch/meta/max", "99", true);
+  homa.mqttHelper.publish("/devices/zwave-" + this.id + "/controls/switch", properties.value, true);
 }
 DimmableLight.prototype.applyUpdate = function(change) {
   ZDevice.prototype.applyUpdate.apply(this, arguments);
-};
+  if ("valueSensor" in change) {
+    homa.mqttHelper.publish("/devices/zwave-" + this.id + "/controls/power", change.valueSensor, true);
+  }
+  if ("value" in change) {
+    homa.mqttHelper.publish("/devices/zwave-" + this.id + "/controls/switch", change.value, true);
+  }
+}
+DimmableLight.prototype.handle = function(control, payload) {
+  ZDevice.prototype.handle.apply(this, arguments);
+  if (control == "switch") {
+    var newValue = parseInt(payload, 10);
+    if (!isNaN(newValue)) {
+      fibaroCallAction("setValue", {'arg1':newValue}, this.id, function (error, response, body) {});
+    }
+  }
+}
 
 var TemperatureSensor = function (id) {
   ZDevice.call(this, id);
@@ -94,10 +125,18 @@ TemperatureSensor.prototype = Object.create(ZDevice.prototype);
 TemperatureSensor.prototype.constructor = TemperatureSensor
 TemperatureSensor.prototype.initialise = function (properties) {
   ZDevice.prototype.initialise.apply(this, arguments);
+  homa.mqttHelper.publish("/devices/zwave-" + this.id + "/controls/temperature/meta/type", "text", true);
+  homa.mqttHelper.publish("/devices/zwave-" + this.id + "/controls/temperature", properties.value, true);
 }
 TemperatureSensor.prototype.applyUpdate = function (change) {
   ZDevice.prototype.applyUpdate.apply(this, arguments);
+  if ("value" in change) {
+    homa.mqttHelper.publish("/devices/zwave-" + this.id + "/controls/temperature", change.value, true);
+  }
 };
+TemperatureSensor.prototype.handle = function(control, payload) {
+    ZDevice.prototype.handle.apply(this, arguments);
+}
 
 var DoorSensor = function (id) {
   ZDevice.call(this, id);
@@ -106,11 +145,26 @@ var DoorSensor = function (id) {
 DoorSensor.prototype = Object.create(ZDevice.prototype);
 DoorSensor.prototype.constructor = DoorSensor
 DoorSensor.prototype.initialise = function (properties) {
+  var state = properties.value == "0" ? "closed" : "open";
   ZDevice.prototype.initialise.apply(this, arguments);
+  homa.mqttHelper.publish("/devices/zwave-" + this.id + "/controls/door/meta/type", "text", true);
+  homa.mqttHelper.publish("/devices/zwave-" + this.id + "/controls/door", state, true);
+  this.previousState = state;
 }
 DoorSensor.prototype.applyUpdate = function (change) {
   ZDevice.prototype.applyUpdate.apply(this, arguments);
+  if ("value" in change) {
+    var state = change.value == "0" ? "closed" : "open";
+    homa.mqttHelper.publish("/devices/zwave-" + this.id + "/controls/door", state, true);
+    if (this.previousState != change.value) {
+      homa.mqttHelper.publish("/events/zwave-" + this.id + "/door", state, false);
+      this.previousState = state;
+    }
+  }
 };
+DoorSensor.prototype.handle = function(control, payload) {
+    ZDevice.prototype.handle.apply(this, arguments);
+}
 
 var pollFibaro = function () {
   console.log("refreshStates last=" + (pollFibaro.last || "0"));
@@ -165,11 +219,14 @@ homa.mqttHelper.on('connect', function(packet) {
 });
 
 homa.mqttHelper.on('message', function(packet) {
-  var match = /^\/devices\/zwave-(\d+)\//.exec(packet.topic)
+  homa.settings.insert(packet.topic, packet.payload);
+  var match = /^\/devices\/zwave-(\d+)\/controls\/([^\/]+)\/on/.exec(packet.topic)
   if (match != null) {
-    var handler = handlers[match[1]];
-    if (typeof handler !== 'undefined') {
-      handler.handle(packet.payload);
+    var id = match[1];
+    var control = match[2];
+    var payload = packet.payload;
+    if (id in handlers) {
+      handlers[id].handle(control, payload);
     }
   }
 });
