@@ -4,8 +4,8 @@ var request = require("request");
 var _ = require('underscore');
 
 var systemId = homa.paramsWithDefaultSystemId("homa-fibaro");
-var url = "http://HCL-000000.home/api/";
-var auth = { 'username' : "homa", 'password' : "secret" };
+var url;
+var auth;
 
 var handlers = [];
 
@@ -190,36 +190,51 @@ var pollFibaro = function () {
 }
 
 homa.mqttHelper.on('connect', function(packet) {
-  request({
-    'uri' : url + "devices",
-    'auth' : auth
-  }, function (error, response, body) {
-    if (!error && response.statusCode == 200) {
-      var fibaro = JSON.parse(body);
-      fibaro.forEach(function(device) {
-        var id = device.id;
-        if (device.type == "binary_light") {
-          handlers[id] = new BinaryLight(id);
-        } else if (device.type == "dimmable_light") {
-          handlers[id] = new DimmableLight(id);
-        } else if (device.type == "temperature_sensor") {
-          handlers[id] = new TemperatureSensor(id);
-        } else if (device.type == "door_sensor") {
-          handlers[id] = new DoorSensor(id);
-        }
-        if (id in handlers) {
-          handlers[id].initialise(device.properties);
-        }
-      });
-      pollFibaro();
-    } else {
-      process.exit(-1);
-    }
-  });
+  homa.settings.require('url');
+  homa.settings.require('username');
+  homa.settings.require('password');
+
+  homa.mqttHelper.subscribe("/devices/+/controls/+/on");
 });
 
 homa.mqttHelper.on('message', function(packet) {
   homa.settings.insert(packet.topic, packet.payload);
+  if (!homa.settings.isLocked() && homa.settings.isBootstrapCompleted()) {
+    homa.settings.lock();
+    url = homa.settings.get('url');
+    auth = {
+      'username' : homa.settings.get('username'),
+      'password' : homa.settings.get('password')
+    };
+
+    request({
+      'uri' : url + "devices",
+      'auth' : auth
+    }, function (error, response, body) {
+      if (!error && response.statusCode == 200) {
+        var fibaro = JSON.parse(body);
+        fibaro.forEach(function(device) {
+          var id = device.id;
+          if (device.type == "binary_light") {
+            handlers[id] = new BinaryLight(id);
+          } else if (device.type == "dimmable_light") {
+            handlers[id] = new DimmableLight(id);
+          } else if (device.type == "temperature_sensor") {
+            handlers[id] = new TemperatureSensor(id);
+          } else if (device.type == "door_sensor") {
+            handlers[id] = new DoorSensor(id);
+          }
+          if (id in handlers) {
+            handlers[id].initialise(device.properties);
+          }
+        });
+        pollFibaro();
+      } else {
+        process.exit(-1);
+      }
+    });
+  }
+
   var match = /^\/devices\/zwave-(\d+)\/controls\/([^\/]+)\/on/.exec(packet.topic)
   if (match != null) {
     var id = match[1];
