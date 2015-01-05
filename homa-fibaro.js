@@ -28,6 +28,7 @@ var ZDevice = function (id) {
 ZDevice.prototype.initialise = function (properties) {
   if (properties.dead == "1") {
     console.log("device " + this.id + " is dead");
+    fibaroCallAction("wakeUpDeadDevice", {}, this.id, function (error, response, body) {});
   }
   if ("batteryLevel" in properties) {
     homa.mqttHelper.publish("/devices/zwave-"+ this.id + "/controls/battery-level/meta/type", "text" , true);
