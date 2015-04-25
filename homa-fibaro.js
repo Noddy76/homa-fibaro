@@ -2,6 +2,7 @@
 var homa = require('homa');
 var request = require("request");
 var _ = require('underscore');
+var log = require('./logger.js');
 
 var systemId = homa.paramsWithDefaultSystemId("homa-fibaro");
 var url;
@@ -10,11 +11,15 @@ var auth;
 var handlers = [];
 
 (function connect() {
-    homa.mqttHelper.connect();
+  homa.logger.stream = require('dev-null')();
+  homa.logger.on('log', function(msg) {
+    log[msg.level](msg.prefix + " " + msg.message);
+  });
+  homa.mqttHelper.connect();
 })();
 
 var fibaroCallAction = function(name, args, id, callback) {
-  console.log("callAction %s(%j) on %s", name, args, id);
+  log.debug("callAction %s(%j) on %s", name, args, id);
   request({
     'uri' : url + "callAction",
     'auth' : auth,
@@ -27,7 +32,7 @@ var ZDevice = function (id) {
 }
 ZDevice.prototype.initialise = function (properties) {
   if (properties.dead == "1") {
-    console.log("device " + this.id + " is dead");
+    log.warn("device " + this.id + " is dead");
     fibaroCallAction("wakeUpDeadDevice", {}, this.id, function (error, response, body) {});
   }
   if ("batteryLevel" in properties) {
@@ -36,21 +41,20 @@ ZDevice.prototype.initialise = function (properties) {
   }
 }
 ZDevice.prototype.applyUpdate = function (change) {
-  console.dir(change);
   if (change.dead == "1") {
-    console.log("device " + this.id + " is dead");
+    log.warn("device " + this.id + " is dead");
   }
   if ("batteryLevel" in change) {
     homa.mqttHelper.publish("/devices/zwave-" + this.id + "/controls/battery-level", change.batteryLevel , true);
   }
 }
 ZDevice.prototype.handle = function (control, payload) {
-    console.log("device " + this.id + ", control " + control + " received payload " + payload);
+    log.info("device " + this.id + ", control " + control + " received payload " + payload);
 }
 
 var BinaryLight = function(id) {
   ZDevice.call(this, id);
-  console.log("New binary light " + this.id);
+  log.info("New binary light " + this.id);
 };
 BinaryLight.prototype = Object.create(ZDevice.prototype);
 BinaryLight.prototype.constructor = BinaryLight
@@ -85,7 +89,7 @@ BinaryLight.prototype.handle = function(control, payload) {
 
 var DimmableLight = function(id) {
   ZDevice.call(this, id);
-  console.log("New dimmable light " + id);
+  log.info("New dimmable light " + id);
 };
 DimmableLight.prototype = Object.create(ZDevice.prototype);
 DimmableLight.prototype.constructor = DimmableLight
@@ -120,7 +124,7 @@ DimmableLight.prototype.handle = function(control, payload) {
 
 var TemperatureSensor = function (id) {
   ZDevice.call(this, id);
-  console.log("New temperature sensor " + id);
+  log.info("New temperature sensor " + id);
 }
 TemperatureSensor.prototype = Object.create(ZDevice.prototype);
 TemperatureSensor.prototype.constructor = TemperatureSensor
@@ -141,7 +145,7 @@ TemperatureSensor.prototype.handle = function(control, payload) {
 
 var DoorSensor = function (id) {
   ZDevice.call(this, id);
-  console.log("New door sensor " + id);
+  log.info("New door sensor " + id);
 };
 DoorSensor.prototype = Object.create(ZDevice.prototype);
 DoorSensor.prototype.constructor = DoorSensor
@@ -168,7 +172,7 @@ DoorSensor.prototype.handle = function(control, payload) {
 }
 
 var pollFibaro = function () {
-  console.log("refreshStates last=" + (pollFibaro.last || "0"));
+  log.debug("refreshStates last=" + (pollFibaro.last || "0"));
   request({
     'uri' : url + "refreshStates",
     'auth' : auth,
@@ -204,8 +208,8 @@ homa.mqttHelper.on('message', function(packet) {
     homa.settings.lock();
     url = homa.settings.get('url');
     auth = {
-      'username' : homa.settings.get('username'),
-      'password' : homa.settings.get('password')
+      'username' : homa.settings.get('username').toString(),
+      'password' : homa.settings.get('password').toString()
     };
 
     request({

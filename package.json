@@ -1,11 +1,17 @@
 {
   "name": "homa-fibaro",
-  "version" : "0.1.0",
-  "private":"true",
-  "dependencies" : {
-    "homa" : ">=0.2.0",
-    "request" : ">=2.49.0",
-    "underscore" : ">=1.7.0"
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "private": "true",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Noddy76/homa-fibaro.git"
+  },
+  "dependencies": {
+    "dev-null": "^0.1.1",
+    "homa": ">=0.2.0",
+    "request": ">=2.49.0",
+    "underscore": ">=1.7.0",
+    "winston": "^1.0.0"
   }
 }
-
